@@ -5,6 +5,9 @@ import Login from './pages/Login'
 import AuthCallback from './pages/AuthCallBack'
 import Dashboard from './pages/DashBoard'
 import Protected from './components/Protected'
+import { supabase } from '../supabase_connection'
+
+supabase.auth.getSession().then(r => console.log('supabase OK', r.data?.session))
 
 const router = createBrowserRouter([
   { path: '/login', element: <Login/> },
