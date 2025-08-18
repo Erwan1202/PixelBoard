@@ -1,10 +1,8 @@
-import React from 'react'
-import { useEffect } from 'react'
-
+import { React, useEffect } from 'react'
 export default function AuthCallback() {
   useEffect(() => {
-    const timer = setTimeout(() => { window.location.replace('/') }, 500)
-    return () => clearTimeout(timer)
+    const t = setTimeout(() => window.location.replace('/'), 400)
+    return () => clearTimeout(t)
   }, [])
   return <div className="p-6">Connexion en cours…</div>
 }
