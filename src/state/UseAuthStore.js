@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { supabase } from '../../supabase_connection'
 
+
 export const useAuthStore = create((set) => ({
   session: null,
   user: null,

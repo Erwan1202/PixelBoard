@@ -2,6 +2,10 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
+import { supabase } from '../supabase_connection'
+
+supabase.auth.getSession().then(r => console.log('supabase OK', r.data?.session))
+
 
 const root = document.getElementById('root')
 createRoot(root).render(
