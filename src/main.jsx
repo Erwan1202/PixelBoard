@@ -1,11 +1,17 @@
-import { React } from 'react'
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.jsx'
+import React from 'react'
+import { useEffect } from 'react'
+import { useAuthStore } from './state/UseAuthStore'
+import LoginPage from './pages/LoginPage'
 
-createRoot(document.getElementById('root')).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
-)
+export default function App() {
+  const { init, user, loading } = useAuthStore()
+
+  useEffect(() => { init() }, [])
+
+  if (loading) return <div className="p-6">Chargement…</div>
+  return user ? <Dashboard/> : <LoginPage/>
+}
+
+function Dashboard() {
+  return <div className="p-6">Connecté ✅</div>
+}
