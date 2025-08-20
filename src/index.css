@@ -2,5 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* visuel vite-fait si Tailwind pas actif */
-html,body,#root { height:100%; }
+html, body, #root { height: 100%; }
+canvas { image-rendering: pixelated; }
+
