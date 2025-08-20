@@ -1,8 +1,8 @@
 // src/pages/BoardPage.jsx
 import { useEffect, useState } from 'react'
 import { useParams, Link, useSearchParams } from 'react-router-dom'
-import { getBoardById } from '../services/boards'
-import BoardCanvas from '../components/BoardCanvas'
+import { getBoardById } from '../services/board'
+import BoardCanvas from '../components/BoardCanva'
 import Palette from '../components/Palette'
 import { useAuthStore } from '../state/UseAuthStore'
 import React from 'react'

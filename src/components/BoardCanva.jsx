@@ -14,6 +14,9 @@ export default function BoardCanvas({
   cooldownMs = 0,
   onCooldownStart = () => {},
   currentUser, // { id, name }
+  /* NEW: deep-link */
+  initialView, // { x, y, z? }
+  onShare,     // ({x,y,z}) => void
 }) {
   const canvasRef = useRef(null)
   const containerRef = useRef(null)
@@ -22,19 +25,12 @@ export default function BoardCanvas({
   const [offset, setOffset] = useState({ x: 0, y: 0 })
   const [hover, setHover] = useState({ x: -1, y: -1 })
 
-  // pixels affichés (clé "x,y" -> color_idx)
   const pixelsRef = useRef(new Map())
+  const colors = useMemo(() => (Array.isArray(palette) && palette.length ? palette : ['#000', '#fff']), [palette])
 
-  const colors = useMemo(
-    () => (Array.isArray(palette) && palette.length ? palette : ['#000', '#fff']),
-    [palette]
-  )
-
-  // --- presence state (autres curseurs) ---
-  const [cursors, setCursors] = useState([]) // [{ id, x, y, color, name }]
+  const [cursors, setCursors] = useState([])
   const presenceChannelRef = useRef(null)
 
-  // util: throttling envoi présence
   const lastSentRef = useRef(0)
   const throttlePresence = (fn, minDelayMs) => {
     const now = performance.now()
@@ -44,7 +40,6 @@ export default function BoardCanvas({
     }
   }
 
-  // conversions coordonnées écran -> board
   const screenToBoard = (sx, sy) => {
     const rect = canvasRef.current.getBoundingClientRect()
     const x = Math.floor((sx - rect.left - offset.x) / scale)
@@ -52,55 +47,50 @@ export default function BoardCanvas({
     return { x, y }
   }
 
-  // applique un pixel dans le buffer local puis redraw
-  const applyPixel = (x, y, color_idx) => {
-    pixelsRef.current.set(`${x},${y}`, color_idx)
-    draw()
+  /* NEW: centrer la vue */
+  const centerOn = (x, y, z) => {
+    const cont = containerRef.current
+    if (!cont) return
+    const s = Number.isFinite(z) ? z : scale
+    if (Number.isFinite(z)) setScale(z)
+    const cx = cont.clientWidth / 2
+    const cy = cont.clientHeight / 2
+    setOffset({
+      x: Math.round(cx - (x + 0.5) * s),
+      y: Math.round(cy - (y + 0.5) * s),
+    })
   }
 
-  // --- subscribe pixel events (Realtime) ---
+  const applyPixel = (x, y, color_idx) => { pixelsRef.current.set(`${x},${y}`, color_idx); draw() }
+
   useEffect(() => {
     if (!boardId) return
-    const channel = subscribePixels(boardId, (e) => {
-      // console.log('[realtime]', e)
-      applyPixel(e.x, e.y, e.color_idx)
-    })
+    const channel = subscribePixels(boardId, (e) => applyPixel(e.x, e.y, e.color_idx))
     return () => { supabase.removeChannel(channel) }
   }, [boardId])
 
-  // --- join presence + sync cursors ---
   useEffect(() => {
     if (!boardId || !currentUser?.id) return
-    const me = {
-      id: currentUser.id,
-      name: currentUser.name || 'user',
-      color: colors[colorIndex % colors.length] || '#fff',
-    }
+    const me = { id: currentUser.id, name: currentUser.name || 'user', color: colors[colorIndex % colors.length] || '#fff' }
     presenceChannelRef.current = joinPresence(boardId, me, (state) => {
       const list = []
       Object.entries(state).forEach(([uid, arr]) => {
         const last = arr[arr.length - 1]
-        if (!last) return
-        list.push({ id: uid, ...last })
+        if (last) list.push({ id: uid, ...last })
       })
-      setCursors(list)
-      // redraw pour afficher/mettre à jour les curseurs
-      draw()
+      setCursors(list); draw()
     })
-    return () => {
-      if (presenceChannelRef.current) {
-        supabase.removeChannel(presenceChannelRef.current)
-        presenceChannelRef.current = null
-      }
-    }
+    return () => { if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current) }
   }, [boardId, currentUser?.id])
 
-  // si la couleur sélectionnée change, mets à jour la présence au prochain move
   useEffect(() => {
-    lastSentRef.current = 0 // force prochain envoi immédiat
-  }, [colorIndex])
+    if (!initialView) return
+    const { x, y, z } = initialView
+    if (Number.isFinite(x) && Number.isFinite(y)) {
+      setTimeout(() => centerOn(x, y, z), 0)
+    }
+  }, [initialView?.x, initialView?.y, initialView?.z])
 
-  // --- dessin principal ---
   const draw = () => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -114,73 +104,48 @@ export default function BoardCanvas({
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 
-    // fond
-    ctx.fillStyle = '#0b1220'
-    ctx.fillRect(0, 0, cw, ch)
+    ctx.fillStyle = '#0b1220'; ctx.fillRect(0, 0, cw, ch)
 
-    // zone du board
     ctx.save()
     ctx.translate(offset.x, offset.y)
-    ctx.fillStyle = '#111827'
-    ctx.fillRect(0, 0, width * scale, height * scale)
+    ctx.fillStyle = '#111827'; ctx.fillRect(0, 0, width * scale, height * scale)
 
-    // pixels
     for (const [key, cidx] of pixelsRef.current) {
       const [x, y] = key.split(',').map(Number)
       ctx.fillStyle = colors[cidx % colors.length]
       ctx.fillRect(x * scale, y * scale, scale, scale)
     }
 
-    // grille légère
     if (scale >= 8) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.06)'
-      ctx.lineWidth = 1
-      for (let x = 0; x <= width; x++) {
-        const px = Math.floor(x * scale) + 0.5
-        ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, height * scale); ctx.stroke()
-      }
-      for (let y = 0; y <= height; y++) {
-        const py = Math.floor(y * scale) + 0.5
-        ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(width * scale, py); ctx.stroke()
-      }
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1
+      for (let x = 0; x <= width; x++) { const px = Math.floor(x * scale) + 0.5; ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, height * scale); ctx.stroke() }
+      for (let y = 0; y <= height; y++) { const py = Math.floor(y * scale) + 0.5; ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(width * scale, py); ctx.stroke() }
     }
 
-    // hover highlight
     if (hover.x >= 0 && hover.y >= 0 && hover.x < width && hover.y < height) {
       ctx.fillStyle = 'rgba(255,255,255,0.25)'
       ctx.fillRect(hover.x * scale, hover.y * scale, scale, scale)
     }
 
-    // ghost cursors (autres utilisateurs)
+    // cursors overlay
+    ctx.font = '12px system-ui, sans-serif'; ctx.textBaseline = 'top'
     for (const c of cursors) {
-      if (c.id === currentUser?.id) continue // ignore notre propre curseur (option)
+      if (c.id === currentUser?.id) continue
       if (c.x == null || c.y == null) continue
-      // position en pixels écran
       const sx = offset.x + c.x * scale
       const sy = offset.y + c.y * scale
-
-      // petit rectangle + contour
-      ctx.fillStyle = c.color || '#fff'
-      ctx.globalAlpha = 0.8
-      ctx.fillRect(sx, sy, scale, scale)
-      ctx.globalAlpha = 1
-      ctx.strokeStyle = '#000'
-      ctx.strokeRect(sx + 0.5, sy + 0.5, scale - 1, scale - 1)
-
-      // label
+      ctx.fillStyle = c.color || '#fff'; ctx.globalAlpha = .8; ctx.fillRect(sx, sy, scale, scale)
+      ctx.globalAlpha = 1; ctx.strokeStyle = '#000'; ctx.strokeRect(sx + .5, sy + .5, scale - 1, scale - 1)
       if (scale >= 10) {
-        ctx.font = '12px system-ui, sans-serif'
-        ctx.fillStyle = 'rgba(0,0,0,0.7)'
-        ctx.fillRect(sx + scale + 4, sy - 2, ctx.measureText(c.name || 'user').width + 8, 16)
-        ctx.fillStyle = '#fff'
-        ctx.fillText(c.name || 'user', sx + scale + 8, sy + 10)
+        const text = c.name || 'user'; const pad = 4; const tw = ctx.measureText(text).width
+        ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(sx + scale + 4, sy - 2, tw + pad * 2, 16)
+        ctx.fillStyle = '#fff'; ctx.fillText(text, sx + scale + 4 + pad, sy)
       }
     }
 
     ctx.restore()
   }
 
-  // redraw sur resize et changements d'état
   useEffect(() => {
     const ro = new ResizeObserver(() => draw())
     if (containerRef.current) ro.observe(containerRef.current)
@@ -189,7 +154,6 @@ export default function BoardCanvas({
 
   useEffect(() => { draw() })
 
-  // interactions
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -199,22 +163,16 @@ export default function BoardCanvas({
 
     const onPointerDown = async (e) => {
       if (e.button === 1 || (e.button === 0 && e.shiftKey)) {
-        // pan
-        dragging = true
-        start = { x: e.clientX, y: e.clientY }
-        startOffset = { ...offset }
+        dragging = true; start = { x: e.clientX, y: e.clientY }; startOffset = { ...offset }
       } else if (e.button === 0) {
-        if (cooldownMs > 0) return // bloque pendant cooldown
+        if (cooldownMs > 0) return
         const { x, y } = screenToBoard(e.clientX, e.clientY)
         if (x >= 0 && y >= 0 && x < width && y < height) {
           try {
-            // 1) dessiner optimiste
             applyPixel(x, y, colorIndex)
-            // 2) envoyer au serveur
             await placePixel(boardId, x, y, colorIndex)
-            onCooldownStart(2000) // cooldown visuel 2s
+            onCooldownStart(2000)
           } catch (err) {
-            // revert si erreur
             pixelsRef.current.delete(`${x},${y}`); draw()
             if (String(err.message || '').toLowerCase().includes('cooldown')) onCooldownStart(1500)
             else alert(err.message)
@@ -225,22 +183,17 @@ export default function BoardCanvas({
 
     const onPointerMove = (e) => {
       if (dragging) {
-        setOffset({
-          x: startOffset.x + (e.clientX - start.x),
-          y: startOffset.y + (e.clientY - start.y),
-        })
+        setOffset({ x: startOffset.x + (e.clientX - start.x), y: startOffset.y + (e.clientY - start.y) })
       } else {
         const p = screenToBoard(e.clientX, e.clientY)
         if (p.x !== hover.x || p.y !== hover.y) setHover(p)
-
-        // publier notre position (throttle 10 Hz)
         throttlePresence(() => {
           if (presenceChannelRef.current && currentUser?.id) {
             updateMyCursor(presenceChannelRef.current, {
               x: Math.max(0, Math.min(width - 1, p.x)),
               y: Math.max(0, Math.min(height - 1, p.y)),
               color: colors[colorIndex % colors.length] || '#fff',
-              name: currentUser.name || 'user',
+              name: currentUser?.name || 'user',
             })
           }
         }, 100)
@@ -255,8 +208,6 @@ export default function BoardCanvas({
       const dir = Math.sign(e.deltaY)
       const next = Math.min(40, Math.max(4, old + dir * -1 * (old >= 16 ? 2 : 1)))
       if (next === old) return
-
-      // zoom centré souris
       const rect = canvas.getBoundingClientRect()
       const mx = e.clientX - rect.left
       const my = e.clientY - rect.top
@@ -266,18 +217,30 @@ export default function BoardCanvas({
       setOffset({ x: mx - wx * next, y: my - wy * next })
     }
 
+    /* NEW: clic droit = copier lien position */
+    const onContextMenu = (e) => {
+      if (!onShare) return
+      e.preventDefault()
+      const { x, y } = screenToBoard(e.clientX, e.clientY)
+      if (x >= 0 && y >= 0 && x < width && y < height) {
+        onShare({ x, y, z: scale })
+      }
+    }
+
     canvas.addEventListener('pointerdown', onPointerDown)
     window.addEventListener('pointermove', onPointerMove)
     window.addEventListener('pointerup', onPointerUp)
     canvas.addEventListener('wheel', onWheel, { passive: false })
+    canvas.addEventListener('contextmenu', onContextMenu)
 
     return () => {
       canvas.removeEventListener('pointerdown', onPointerDown)
       window.removeEventListener('pointermove', onPointerMove)
       window.removeEventListener('pointerup', onPointerUp)
       canvas.removeEventListener('wheel', onWheel)
+      canvas.removeEventListener('contextmenu', onContextMenu)
     }
-  }, [scale, offset, hover, width, height, boardId, colorIndex, cooldownMs, currentUser, colors])
+  }, [scale, offset, hover, width, height, boardId, colorIndex, cooldownMs, currentUser, colors, onShare])
 
   return (
     <div ref={containerRef} className="canvas-wrap">
@@ -298,8 +261,7 @@ BoardCanvas.propTypes = {
   colorIndex: PropTypes.number,
   cooldownMs: PropTypes.number,
   onCooldownStart: PropTypes.func,
-  currentUser: PropTypes.shape({
-    id: PropTypes.string,
-    name: PropTypes.string,
-  }),
+  currentUser: PropTypes.shape({ id: PropTypes.string, name: PropTypes.string }),
+  initialView: PropTypes.shape({ x: PropTypes.number, y: PropTypes.number, z: PropTypes.number }),
+  onShare: PropTypes.func,
 }
