@@ -19,3 +19,13 @@ export async function createBoard({ name, width = 100, height = 100, palette, vi
   if (error) throw error
   return data
 }
+
+export async function getBoardById(id) {
+  const { data, error } = await supabase
+    .from('boards')
+    .select('id,name,width,height,palette')
+    .eq('id', id)
+    .single()
+  if (error) throw error
+  return data
+}
