@@ -14,11 +14,11 @@ export default function BoardCanvas({
   cooldownMs = 0,
   onCooldownStart = () => {},
   currentUser, // { id, name }
-  /* NEW: deep-link */
   initialView, // { x, y, z? }
-  onShare,     // ({x,y,z}) => void
+  onShare,
 }) {
   const canvasRef = useRef(null)
+  const miniRef = useRef(null)          // <-- mini-map
   const containerRef = useRef(null)
 
   const [scale, setScale] = useState(12)
@@ -34,10 +34,7 @@ export default function BoardCanvas({
   const lastSentRef = useRef(0)
   const throttlePresence = (fn, minDelayMs) => {
     const now = performance.now()
-    if (now - lastSentRef.current > minDelayMs) {
-      lastSentRef.current = now
-      fn()
-    }
+    if (now - lastSentRef.current > minDelayMs) { lastSentRef.current = now; fn() }
   }
 
   const screenToBoard = (sx, sy) => {
@@ -47,7 +44,6 @@ export default function BoardCanvas({
     return { x, y }
   }
 
-  /* NEW: centrer la vue */
   const centerOn = (x, y, z) => {
     const cont = containerRef.current
     if (!cont) return
@@ -74,10 +70,7 @@ export default function BoardCanvas({
     const me = { id: currentUser.id, name: currentUser.name || 'user', color: colors[colorIndex % colors.length] || '#fff' }
     presenceChannelRef.current = joinPresence(boardId, me, (state) => {
       const list = []
-      Object.entries(state).forEach(([uid, arr]) => {
-        const last = arr[arr.length - 1]
-        if (last) list.push({ id: uid, ...last })
-      })
+      Object.entries(state).forEach(([uid, arr]) => { const last = arr.at(-1); if (last) list.push({ id: uid, ...last }) })
       setCursors(list); draw()
     })
     return () => { if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current) }
@@ -86,28 +79,52 @@ export default function BoardCanvas({
   useEffect(() => {
     if (!initialView) return
     const { x, y, z } = initialView
-    if (Number.isFinite(x) && Number.isFinite(y)) {
-      setTimeout(() => centerOn(x, y, z), 0)
-    }
+    if (Number.isFinite(x) && Number.isFinite(y)) setTimeout(() => centerOn(x, y, z), 0)
   }, [initialView?.x, initialView?.y, initialView?.z])
+
+  // ---------- RENDERING ----------
+  const drawMiniMap = () => {
+    const mini = miniRef.current
+    if (!mini) return
+    const ctx = mini.getContext('2d')
+    const W = mini.width = 200
+    const H = mini.height = 200
+    // fond
+    ctx.fillStyle = '#0b1220'; ctx.fillRect(0, 0, W, H)
+    // zone board
+    ctx.fillStyle = '#111827'; ctx.fillRect(0, 0, W, H)
+    const s = Math.min(W / width, H / height) // échelle mini
+    // pixels
+    for (const [key, cidx] of pixelsRef.current) {
+      const [x, y] = key.split(',').map(Number)
+      ctx.fillStyle = colors[cidx % colors.length]
+      ctx.fillRect(Math.floor(x * s), Math.floor(y * s), Math.ceil(s), Math.ceil(s))
+    }
+    // viewport rectangle
+    const cont = containerRef.current
+    if (!cont) return
+    const viewW = cont.clientWidth / scale
+    const viewH = cont.clientHeight / scale
+    const vx = Math.max(0, Math.min(width - viewW, -offset.x / scale))
+    const vy = Math.max(0, Math.min(height - viewH, -offset.y / scale))
+    ctx.strokeStyle = '#22d3ee'
+    ctx.lineWidth = 2
+    ctx.strokeRect(vx * s, vy * s, viewW * s, viewH * s)
+  }
 
   const draw = () => {
     const canvas = canvasRef.current
     if (!canvas) return
     const ctx = canvas.getContext('2d', { alpha: false })
     const dpr = window.devicePixelRatio || 1
-    const cw = canvas.clientWidth
-    const ch = canvas.clientHeight
+    const cw = canvas.clientWidth, ch = canvas.clientHeight
     if (canvas.width !== Math.floor(cw * dpr) || canvas.height !== Math.floor(ch * dpr)) {
-      canvas.width = Math.floor(cw * dpr)
-      canvas.height = Math.floor(ch * dpr)
+      canvas.width = Math.floor(cw * dpr); canvas.height = Math.floor(ch * dpr)
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-
     ctx.fillStyle = '#0b1220'; ctx.fillRect(0, 0, cw, ch)
 
-    ctx.save()
-    ctx.translate(offset.x, offset.y)
+    ctx.save(); ctx.translate(offset.x, offset.y)
     ctx.fillStyle = '#111827'; ctx.fillRect(0, 0, width * scale, height * scale)
 
     for (const [key, cidx] of pixelsRef.current) {
@@ -127,23 +144,23 @@ export default function BoardCanvas({
       ctx.fillRect(hover.x * scale, hover.y * scale, scale, scale)
     }
 
-    // cursors overlay
+    // ghost cursors
     ctx.font = '12px system-ui, sans-serif'; ctx.textBaseline = 'top'
     for (const c of cursors) {
       if (c.id === currentUser?.id) continue
       if (c.x == null || c.y == null) continue
-      const sx = offset.x + c.x * scale
-      const sy = offset.y + c.y * scale
+      const sx = offset.x + c.x * scale, sy = offset.y + c.y * scale
       ctx.fillStyle = c.color || '#fff'; ctx.globalAlpha = .8; ctx.fillRect(sx, sy, scale, scale)
       ctx.globalAlpha = 1; ctx.strokeStyle = '#000'; ctx.strokeRect(sx + .5, sy + .5, scale - 1, scale - 1)
       if (scale >= 10) {
-        const text = c.name || 'user'; const pad = 4; const tw = ctx.measureText(text).width
+        const text = c.name || 'user', pad = 4, tw = ctx.measureText(text).width
         ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(sx + scale + 4, sy - 2, tw + pad * 2, 16)
         ctx.fillStyle = '#fff'; ctx.fillText(text, sx + scale + 4 + pad, sy)
       }
     }
-
     ctx.restore()
+
+    drawMiniMap()
   }
 
   useEffect(() => {
@@ -151,9 +168,9 @@ export default function BoardCanvas({
     if (containerRef.current) ro.observe(containerRef.current)
     return () => ro.disconnect()
   }, [width, height, scale, offset, hover, colors, cursors])
-
   useEffect(() => { draw() })
 
+  // ---------- INTERACTIONS ----------
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -213,18 +230,14 @@ export default function BoardCanvas({
       const my = e.clientY - rect.top
       const wx = (mx - offset.x) / old
       const wy = (my - offset.y) / old
-      setScale(next)
-      setOffset({ x: mx - wx * next, y: my - wy * next })
+      setScale(next); setOffset({ x: mx - wx * next, y: my - wy * next })
     }
 
-    /* NEW: clic droit = copier lien position */
     const onContextMenu = (e) => {
       if (!onShare) return
       e.preventDefault()
       const { x, y } = screenToBoard(e.clientX, e.clientY)
-      if (x >= 0 && y >= 0 && x < width && y < height) {
-        onShare({ x, y, z: scale })
-      }
+      if (x >= 0 && y >= 0 && x < width && y < height) onShare({ x, y, z: scale })
     }
 
     canvas.addEventListener('pointerdown', onPointerDown)
@@ -242,13 +255,47 @@ export default function BoardCanvas({
     }
   }, [scale, offset, hover, width, height, boardId, colorIndex, cooldownMs, currentUser, colors, onShare])
 
+  // mini-map interactions
+  useEffect(() => {
+    const mini = miniRef.current
+    if (!mini) return
+    const rectToBoard = (clientX, clientY) => {
+      const r = mini.getBoundingClientRect()
+      const mx = clientX - r.left, my = clientY - r.top
+      const s = Math.min(200 / width, 200 / height)
+      const bx = Math.floor(mx / s)
+      const by = Math.floor(my / s)
+      return { x: Math.max(0, Math.min(width - 1, bx)), y: Math.max(0, Math.min(height - 1, by)) }
+    }
+    let dragging = false
+    const down = (e) => { dragging = true; const p = rectToBoard(e.clientX, e.clientY); centerOn(p.x, p.y) }
+    const move = (e) => { if (!dragging) return; const p = rectToBoard(e.clientX, e.clientY); centerOn(p.x, p.y) }
+    const up = () => { dragging = false }
+    mini.addEventListener('mousedown', down)
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
+    return () => {
+      mini.removeEventListener('mousedown', down)
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+    }
+  }, [width, height, scale, offset])
+
   return (
-    <div ref={containerRef} className="canvas-wrap">
+    <div ref={containerRef} className="canvas-wrap" style={{ position: 'relative' }}>
       <canvas
         ref={canvasRef}
         style={{ width: '100%', height: '100%', cursor: cooldownMs > 0 ? 'not-allowed' : 'crosshair' }}
         aria-label="Pixel board"
       />
+      {/* Mini-map */}
+      <div style={{
+        position: 'absolute', right: 10, bottom: 10, width: 200, height: 200,
+        borderRadius: 10, overflow: 'hidden', border: '1px solid #e5e7eb', background: '#0b1220',
+        boxShadow: '0 2px 10px rgba(0,0,0,.25)'
+      }}>
+        <canvas ref={miniRef} width={200} height={200} />
+      </div>
     </div>
   )
 }
