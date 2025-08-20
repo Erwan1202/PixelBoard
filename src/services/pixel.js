@@ -7,6 +7,7 @@ export async function placePixel(boardId, x, y, colorIdx) {
     p_y: y,
     p_color_idx: colorIdx,
   })
+  
   if (error) throw error
 }
 
