@@ -166,17 +166,13 @@ export default function BoardCanvas({
   }, [scale, offset, hover, width, height, boardId, colorIndex, cooldownMs])
 
   return (
-  <div
-    ref={containerRef}
-    className="w-full border rounded-xl bg-slate-900 overflow-hidden"
-    style={{ height: '70vh' }}   // <-- fallback même si Tailwind casse
-  >
+  <div ref={containerRef} className="canvas-wrap">
     <canvas
       ref={canvasRef}
-      className={`w-full h-full touch-none ${cooldownMs>0 ? 'cursor-not-allowed' : 'cursor-crosshair'}`}
+      className="w-full h-full"
+      style={{ width: '100%', height: '100%', cursor: cooldownMs > 0 ? 'not-allowed' : 'crosshair' }}
       aria-label="Pixel board"
     />
-    <div className="absolute hidden" aria-hidden />
   </div>
 )
 }
