@@ -1,4 +1,4 @@
-import { supabase } from '../supabase_connection'
+import { supabase } from '../../supabase_connection'
 
 export async function placePixel(boardId, x, y, colorIdx) {
   const { error } = await supabase.rpc('place_pixel', {

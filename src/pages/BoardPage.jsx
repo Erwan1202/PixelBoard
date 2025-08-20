@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getBoardById } from '../services/board'
 import BoardCanvas from '../components/BoardCanva'
+import { useAuthStore } from '../state/UseAuthStore' // <-- important
 import React from 'react'
 
 export default function BoardPage() {
   const { id } = useParams()
+  const { user } = useAuthStore()               // <-- récupère l'utilisateur connecté
   const [board, setBoard] = useState(null)
   const [error, setError] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -36,13 +38,15 @@ export default function BoardPage() {
         </div>
 
         <BoardCanvas
+          boardId={board.id}           // <-- requis pour realtime/RPC
           width={board.width}
           height={board.height}
           palette={board.palette}
+          colorIndex={1}               // TODO: reliera à une palette UI
         />
 
         <p className="text-sm text-gray-500 mt-3">
-          Astuces : molette = zoom • shift + clic/drag (ou clic milieu) = pan • clic = peindre (local)
+          Connecté en tant que {user?.email ?? 'invité'} — molette = zoom • shift + drag = pan • clic = peindre
         </p>
       </div>
     </div>
