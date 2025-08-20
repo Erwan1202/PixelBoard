@@ -6,6 +6,8 @@ import AuthCallback from './pages/AuthCallBack'
 import Dashboard from './pages/DashBoard'
 import Protected from './components/Protected'
 import { supabase } from '../supabase_connection'
+import BoardPage from './pages/BoardPage'
+
 
 supabase.auth.getSession().then(r => console.log('supabase OK', r.data?.session))
 
@@ -17,7 +19,13 @@ const router = createBrowserRouter([
         <Dashboard/>
       </Protected>
     )
-  }
+  },
+  { path: '/board/:id', element: (
+    <Protected>
+      <BoardPage/>
+    </Protected>
+  )
+}
 ])
 
 export default function App() {
