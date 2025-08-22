@@ -1,7 +1,7 @@
 // src/components/BoardCanvas.jsx
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import PropTypes from 'prop-types'
-import { placePixel, subscribePixels, loadPixelHistory, loadCurrentPixels } from '../services/pixel'
+import { placePixel, subscribePixels, loadCurrentPixels } from '../services/pixel'
 import { supabase } from '../../supabase_connection'
 import { joinPresence, updateMyCursor } from '../services/presence'
 
@@ -190,7 +190,7 @@ useEffect(() => {
     if (containerRef.current) ro.observe(containerRef.current)
     return () => ro.disconnect()
   }, [width, height, scale, offset, hover, colors, cursors])
-  useEffect(() => { draw() })
+  useEffect(() => { draw() }, [width, height, scale, offset, hover])
 
   // ---------- INTERACTIONS ----------
   useEffect(() => {
