@@ -1,15 +1,16 @@
 import { supabase } from '../../supabase_connection'
 
-export async function placePixel(boardId, x, y, colorIdx) {
-  const { error } = await supabase.rpc('place_pixel', {
-    p_board_id: boardId,
-    p_x: x,
-    p_y: y,
-    p_color_idx: colorIdx,
-  })
-  
-  if (error) throw error
+// src/services/pixels.js
+export async function placePixel(boardId, x, y, color_idx) {
+  const { data, error, status, statusText } = await supabase
+    .rpc('place_pixel', { board_id: boardId, x, y, color_idx }) // <-- adapte les noms EXACTS attendus
+  if (error) {
+    console.error('place_pixel RPC error:', { status, statusText, error })
+    throw error
+  }
+  return data
 }
+
 
 
 

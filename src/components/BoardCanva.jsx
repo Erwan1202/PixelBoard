@@ -1,8 +1,8 @@
 // src/components/BoardCanvas.jsx
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import PropTypes from 'prop-types'
-import { placePixel, subscribePixels, loadCurrentPixels } from '../services/pixels'
-import { supabase } from '../supabase_connection'
+import { placePixel, subscribePixels, loadCurrentPixels } from '../services/pixel'
+import { supabase } from '../../supabase_connection'
 import { joinPresence, updateMyCursor } from '../services/presence'
 
 export default function BoardCanvas({
