@@ -5,6 +5,12 @@ import { placePixel, subscribePixels, loadCurrentPixels } from '../services/pixe
 import { supabase } from '../../supabase_connection'
 import { joinPresence, updateMyCursor } from '../services/presence'
 
+
+const boardLayerRef = useRef(null)   // offscreen: width x height (1px = 1 case)
+const needFrame = useRef(false)      // flag pour rAF
+
+
+
 export default function BoardCanvas({
   boardId,
   width,
@@ -57,27 +63,61 @@ export default function BoardCanvas({
     })
   }
 
-  const applyPixel = (x, y, color_idx) => { pixelsRef.current.set(`${x},${y}`, color_idx); draw() }
+const scheduleDraw = () => {
+  if (needFrame.current) return
+  needFrame.current = true
+  requestAnimationFrame(() => { needFrame.current = false; draw() })
+}
+
+const applyPixel = (x, y, color_idx) => {
+  pixelsRef.current.set(`${x},${y}`, color_idx)
+
+  // update ponctuel de la couche offscreen
+  const off = boardLayerRef.current
+  if (off) {
+    const octx = off.getContext('2d')
+    octx.fillStyle = colors[color_idx % colors.length]
+    octx.fillRect(x, y, 1, 1)
+  }
+  scheduleDraw()
+}
+
+function rebuildBoardLayer() {
+  const off = document.createElement('canvas')
+  off.width = width
+  off.height = height
+  const octx = off.getContext('2d', { alpha: false })
+  octx.imageSmoothingEnabled = false
+
+  for (const [key, cidx] of pixelsRef.current) {
+    const [x, y] = key.split(',').map(Number)
+    octx.fillStyle = colors[cidx % colors.length]
+    octx.fillRect(x, y, 1, 1) // 1×1 car le scale sera appliqué au draw
+  }
+  boardLayerRef.current = off
+  scheduleDraw()
+}
+
 
 useEffect(() => {
   let alive = true
   async function preload() {
     if (!boardId) return
-    try {
-      const rows = await loadCurrentPixels(boardId)
-      if (!alive) return
-      pixelsRef.current.clear()
-      for (const e of rows) {
-        pixelsRef.current.set(`${e.x},${e.y}`, e.color_idx)
-      }
-      draw()
-    } catch (e) {
-      console.error('preload error:', e)
-    }
+    // 1) charge l’historique ou la vue current_pixels (ce que tu utilises)
+    const rows = await loadCurrentPixels(boardId)   // ou loadPixelHistory(...)
+    if (!alive) return
+
+    // 2) remplit le buffer en mémoire
+    pixelsRef.current.clear()
+    for (const e of rows) pixelsRef.current.set(`${e.x},${e.y}`, e.color_idx)
+
+    // 3) (NOUVEAU) reconstruit la couche offscreen:
+    rebuildBoardLayer()
   }
   preload()
   return () => { alive = false }
-}, [boardId])
+}, [boardId, width, height, colors])   // <- si width/height/palette changent, on reconstruit
+
 
 
 
@@ -134,56 +174,101 @@ useEffect(() => {
     ctx.strokeRect(vx * s, vy * s, viewW * s, viewH * s)
   }
 
-  const draw = () => {
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ctx = canvas.getContext('2d', { alpha: false })
-    const dpr = window.devicePixelRatio || 1
-    const cw = canvas.clientWidth, ch = canvas.clientHeight
-    if (canvas.width !== Math.floor(cw * dpr) || canvas.height !== Math.floor(ch * dpr)) {
-      canvas.width = Math.floor(cw * dpr); canvas.height = Math.floor(ch * dpr)
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
-    ctx.fillStyle = '#0b1220'; ctx.fillRect(0, 0, cw, ch)
+const draw = () => {
+  const canvas = canvasRef.current
+  if (!canvas) return
+  const ctx = canvas.getContext('2d', { alpha: false })
+  const dpr = window.devicePixelRatio || 1
+  const cw = canvas.clientWidth, ch = canvas.clientHeight
 
-    ctx.save(); ctx.translate(offset.x, offset.y)
-    ctx.fillStyle = '#111827'; ctx.fillRect(0, 0, width * scale, height * scale)
-
-    for (const [key, cidx] of pixelsRef.current) {
-      const [x, y] = key.split(',').map(Number)
-      ctx.fillStyle = colors[cidx % colors.length]
-      ctx.fillRect(x * scale, y * scale, scale, scale)
-    }
-
-    if (scale >= 8) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1
-      for (let x = 0; x <= width; x++) { const px = Math.floor(x * scale) + 0.5; ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, height * scale); ctx.stroke() }
-      for (let y = 0; y <= height; y++) { const py = Math.floor(y * scale) + 0.5; ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(width * scale, py); ctx.stroke() }
-    }
-
-    if (hover.x >= 0 && hover.y >= 0 && hover.x < width && hover.y < height) {
-      ctx.fillStyle = 'rgba(255,255,255,0.25)'
-      ctx.fillRect(hover.x * scale, hover.y * scale, scale, scale)
-    }
-
-    // ghost cursors
-    ctx.font = '12px system-ui, sans-serif'; ctx.textBaseline = 'top'
-    for (const c of cursors) {
-      if (c.id === currentUser?.id) continue
-      if (c.x == null || c.y == null) continue
-      const sx = offset.x + c.x * scale, sy = offset.y + c.y * scale
-      ctx.fillStyle = c.color || '#fff'; ctx.globalAlpha = .8; ctx.fillRect(sx, sy, scale, scale)
-      ctx.globalAlpha = 1; ctx.strokeStyle = '#000'; ctx.strokeRect(sx + .5, sy + .5, scale - 1, scale - 1)
-      if (scale >= 10) {
-        const text = c.name || 'user', pad = 4, tw = ctx.measureText(text).width
-        ctx.fillStyle = 'rgba(0,0,0,.7)'; ctx.fillRect(sx + scale + 4, sy - 2, tw + pad * 2, 16)
-        ctx.fillStyle = '#fff'; ctx.fillText(text, sx + scale + 4 + pad, sy)
-      }
-    }
-    ctx.restore()
-
-    drawMiniMap()
+  if (canvas.width !== Math.floor(cw * dpr) || canvas.height !== Math.floor(ch * dpr)) {
+    canvas.width = Math.floor(cw * dpr)
+    canvas.height = Math.floor(ch * dpr)
   }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+
+  // fond
+  ctx.fillStyle = '#0b1220'
+  ctx.fillRect(0, 0, cw, ch)
+
+  // --- board layer (offscreen) -> pan/zoom ---
+  const off = boardLayerRef.current
+  if (off) {
+    ctx.imageSmoothingEnabled = false
+    ctx.drawImage(
+      off,
+      0, 0, off.width, off.height,
+      Math.floor(offset.x), Math.floor(offset.y),
+      off.width * scale, off.height * scale
+    )
+  } else {
+    // fallback si la couche n'est pas prête
+    ctx.fillStyle = '#111827'
+    ctx.fillRect(Math.floor(offset.x), Math.floor(offset.y), width * scale, height * scale)
+  }
+
+  // --- grille légère (uniquement la zone visible) ---
+  if (scale >= 8) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)'
+    ctx.lineWidth = 1
+    const left   = Math.max(0, Math.floor((-offset.x) / scale))
+    const top    = Math.max(0, Math.floor((-offset.y) / scale))
+    const right  = Math.min(width,  left + Math.ceil(cw / scale) + 1)
+    const bottom = Math.min(height, top  + Math.ceil(ch / scale) + 1)
+
+    for (let x = left; x <= right; x++) {
+      const px = Math.floor(offset.x + x * scale) + 0.5
+      ctx.beginPath()
+      ctx.moveTo(px, Math.floor(offset.y + top * scale))
+      ctx.lineTo(px, Math.floor(offset.y + bottom * scale))
+      ctx.stroke()
+    }
+    for (let y = top; y <= bottom; y++) {
+      const py = Math.floor(offset.y + y * scale) + 0.5
+      ctx.beginPath()
+      ctx.moveTo(Math.floor(offset.x + left * scale), py)
+      ctx.lineTo(Math.floor(offset.x + right * scale), py)
+      ctx.stroke()
+    }
+  }
+
+  // --- surbrillance du pixel survolé ---
+  if (hover.x >= 0 && hover.y >= 0 && hover.x < width && hover.y < height) {
+    ctx.fillStyle = 'rgba(255,255,255,0.25)'
+    ctx.fillRect(
+      Math.floor(offset.x + hover.x * scale),
+      Math.floor(offset.y + hover.y * scale),
+      scale, scale
+    )
+  }
+
+  // --- ghost cursors ---
+  ctx.font = '12px system-ui, sans-serif'
+  ctx.textBaseline = 'top'
+  for (const c of cursors) {
+    if (c.id === currentUser?.id) continue
+    if (c.x == null || c.y == null) continue
+    const sx = Math.floor(offset.x + c.x * scale)
+    const sy = Math.floor(offset.y + c.y * scale)
+    ctx.fillStyle = c.color || '#fff'
+    ctx.globalAlpha = 0.8
+    ctx.fillRect(sx, sy, scale, scale)
+    ctx.globalAlpha = 1
+    ctx.strokeStyle = '#000'
+    ctx.strokeRect(sx + 0.5, sy + 0.5, scale - 1, scale - 1)
+    if (scale >= 10) {
+      const text = c.name || 'user', pad = 4, tw = ctx.measureText(text).width
+      ctx.fillStyle = 'rgba(0,0,0,.7)'
+      ctx.fillRect(sx + scale + 4, sy - 2, tw + pad * 2, 16)
+      ctx.fillStyle = '#fff'
+      ctx.fillText(text, sx + scale + 4 + pad, sy)
+    }
+  }
+
+  // mini‑map
+  drawMiniMap()
+}
+
 
   useEffect(() => {
     const ro = new ResizeObserver(() => draw())
