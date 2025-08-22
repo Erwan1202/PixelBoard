@@ -8,7 +8,7 @@ export default function Signup() {
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
+  const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
 
   const validate = () => {
