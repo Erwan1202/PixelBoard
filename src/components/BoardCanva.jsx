@@ -1,7 +1,7 @@
 // src/components/BoardCanvas.jsx
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import PropTypes from 'prop-types'
-import { placePixel, subscribePixels, loadCurrentPixels } from '../services/pixel'
+import { placePixel, subscribePixels, loadCurrentPixels } from '../services/pixel' // <- change en ../services/pixels si besoin
 import { supabase } from '../../supabase_connection'
 import { joinPresence, updateMyCursor } from '../services/presence'
 
@@ -17,7 +17,7 @@ export default function BoardCanvas({
   initialView,            // { x, y, z? }
   onShare,
 }) {
-  // ---------- HOOKS AU DÉBUT (ordre stable) ----------
+  // ---------- HOOKS ----------
   const canvasRef = useRef(null)
   const miniRef = useRef(null)
   const containerRef = useRef(null)
@@ -32,14 +32,19 @@ export default function BoardCanvas({
     [palette]
   )
 
-  const [cursors, setCursors] = useState([])
+  // presence / cursors
+  const cursorsRef = useRef([])                // pas de setState -> zéro re-render
   const presenceChannelRef = useRef(null)
 
-  // couche offscreen + batch de redraw
+  // offscreen layer + rAF batching
   const boardLayerRef = useRef(null)
   const needFrame = useRef(false)
 
-  // ---------- HELPERS (pas de hook ici) ----------
+  // throttles (refs => pas de re-render)
+  const lastHoverTSRef = useRef(0)
+  const lastHoverRef = useRef({ x: -1, y: -1 })
+
+  // ---------- HELPERS ----------
   function scheduleDraw() {
     if (needFrame.current) return
     needFrame.current = true
@@ -92,7 +97,7 @@ export default function BoardCanvas({
     })
   }
 
-  // ---------- DRAW (déclaration de fonction, pas de hook ici) ----------
+  // ---------- DRAW ----------
   function draw() {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -114,15 +119,17 @@ export default function BoardCanvas({
     const off = boardLayerRef.current
     if (off) {
       ctx.imageSmoothingEnabled = false
-      ctx.drawImage(off, 0, 0, off.width, off.height,
+      ctx.drawImage(
+        off, 0, 0, off.width, off.height,
         Math.floor(offset.x), Math.floor(offset.y),
-        off.width * scale, off.height * scale)
+        off.width * scale, off.height * scale
+      )
     } else {
       ctx.fillStyle = '#111827'
       ctx.fillRect(Math.floor(offset.x), Math.floor(offset.y), width * scale, height * scale)
     }
 
-    // grille visible
+    // grille (culling à la zone visible)
     if (scale >= 8) {
       ctx.strokeStyle = 'rgba(255,255,255,0.06)'
       ctx.lineWidth = 1
@@ -145,16 +152,19 @@ export default function BoardCanvas({
     // hover
     if (hover.x >= 0 && hover.y >= 0 && hover.x < width && hover.y < height) {
       ctx.fillStyle = 'rgba(255,255,255,0.25)'
-      ctx.fillRect(Math.floor(offset.x + hover.x * scale),
-                   Math.floor(offset.y + hover.y * scale), scale, scale)
+      ctx.fillRect(
+        Math.floor(offset.x + hover.x * scale),
+        Math.floor(offset.y + hover.y * scale),
+        scale, scale
+      )
     }
 
-    // ghost cursors (viewport culling léger)
+    // ghost cursors (viewport culling)
     ctx.font = '12px system-ui, sans-serif'
     ctx.textBaseline = 'top'
     const visL = -offset.x / scale, visT = -offset.y / scale
     const visR = visL + cw / scale, visB = visT + ch / scale
-    for (const c of cursors) {
+    for (const c of cursorsRef.current) {
       if (c.id === currentUser?.id) continue
       if (c.x == null || c.y == null) continue
       if (c.x < visL - 1 || c.x > visR + 1 || c.y < visT - 1 || c.y > visB + 1) continue
@@ -177,18 +187,17 @@ export default function BoardCanvas({
     const mini = miniRef.current
     if (!mini) return
     const ctx = mini.getContext('2d')
-    const W = mini.width = 200, H = mini.height = 200
+    const W = 200, H = 200 // ne pas réassigner mini.width/height ici
     ctx.fillStyle = '#0b1220'; ctx.fillRect(0, 0, W, H)
     ctx.fillStyle = '#111827'; ctx.fillRect(0, 0, W, H)
     const s = Math.min(W / width, H / height)
-    // pixels
+
     const off = boardLayerRef.current
     if (off) {
-      // drawImage offscreen vers mini (downscale rapide)
       ctx.imageSmoothingEnabled = false
       ctx.drawImage(off, 0, 0, off.width, off.height, 0, 0, off.width * s, off.height * s)
     }
-    // viewport
+
     const cont = containerRef.current; if (!cont) return
     const viewW = cont.clientWidth / scale
     const viewH = cont.clientHeight / scale
@@ -199,7 +208,7 @@ export default function BoardCanvas({
   }
 
   // ---------- EFFECTS ----------
-  // pré‑chargement état courant
+  // preload état courant
   useEffect(() => {
     let alive = true
     async function preload() {
@@ -218,7 +227,7 @@ export default function BoardCanvas({
     return () => { alive = false }
   }, [boardId, width, height, colors])
 
-  // subscribe realtime
+  // realtime pixels
   useEffect(() => {
     if (!boardId) return
     const channel = subscribePixels(boardId, (e) => applyPixel(e.x, e.y, e.color_idx))
@@ -234,22 +243,23 @@ export default function BoardCanvas({
       Object.entries(state).forEach(([uid, arr]) => {
         const last = arr[arr.length - 1]; if (last) list.push({ id: uid, ...last })
       })
-      setCursors(list); scheduleDraw()
+      cursorsRef.current = list
+      scheduleDraw()
     })
     return () => { if (presenceChannelRef.current) supabase.removeChannel(presenceChannelRef.current) }
   }, [boardId, currentUser?.id])
 
-  // initialView
+  // initial view
   useEffect(() => {
     if (!initialView) return
     const { x, y, z } = initialView
     if (Number.isFinite(x) && Number.isFinite(y)) setTimeout(() => centerOn(x, y, z), 0)
   }, [initialView?.x, initialView?.y, initialView?.z])
 
-  // redraw déclenché par les paramètres de vue
-  useEffect(() => { scheduleDraw() }, [width, height, scale, offset, hover, cursors])
+  // redraw quand la vue change (pas de dépendance sur cursors)
+  useEffect(() => { scheduleDraw() }, [width, height, scale, offset, hover])
 
-  // ---------- INTERACTIONS ----------
+  // interactions
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -277,16 +287,17 @@ export default function BoardCanvas({
       }
     }
 
-    const lastHoverTS = { v: 0 }, lastHover = { x: -1, y: -1 }
     const onPointerMove = (e) => {
       if (dragging) {
         setOffset({ x: startOffset.x + (e.clientX - start.x), y: startOffset.y + (e.clientY - start.y) })
       } else {
         const p = screenToBoard(e.clientX, e.clientY)
         const now = performance.now()
-        if (now - lastHoverTS.v > 50 && (p.x !== lastHover.x || p.y !== lastHover.y)) {
-          lastHoverTS.v = now; lastHover.x = p.x; lastHover.y = p.y
+        if (now - lastHoverTSRef.current > 60 && (p.x !== lastHoverRef.current.x || p.y !== lastHoverRef.current.y)) {
+          lastHoverTSRef.current = now
+          lastHoverRef.current = p
           setHover(p)
+          scheduleDraw()
         }
         // presence throttle ~200ms
         if (presenceChannelRef.current && currentUser?.id && now - (presenceChannelRef.current._lastSent || 0) > 200) {
@@ -344,7 +355,11 @@ export default function BoardCanvas({
     <div ref={containerRef} style={{ position:'relative', width:'100%', height:'70vh' }}>
       <canvas
         ref={canvasRef}
-        style={{ width:'100%', height:'100%', cursor: cooldownMs > 0 ? 'not-allowed' : 'crosshair', position:'relative', zIndex:10 }}
+        style={{
+          width:'100%', height:'100%',
+          cursor: cooldownMs > 0 ? 'not-allowed' : 'crosshair',
+          position:'relative', zIndex:10
+        }}
         aria-label="Pixel board"
       />
       <div style={{
