@@ -210,7 +210,7 @@ useEffect(() => {
           try {
             applyPixel(x, y, colorIndex)
             await placePixel(boardId, x, y, colorIndex)
-            onCooldownStart(2000)
+            onCooldownStart(1000)
           } catch (err) {
             pixelsRef.current.delete(`${x},${y}`); draw()
             if (String(err.message || '').toLowerCase().includes('cooldown')) onCooldownStart(1500)
