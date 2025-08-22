@@ -29,3 +29,23 @@ export async function getBoardById(id) {
   if (error) throw error
   return data
 }
+
+export async function getAllBoards() {
+  const { data, error } = await supabase
+    .from('boards')
+    .select('id,name,width,height,created_at,owner_id')
+    .order('created_at', { ascending: false })
+  if (error) throw error
+  return data
+}
+
+export async function getPixelCounts() {
+  const { data, error } = await supabase
+    .from('current_pixels')
+    .select('board_id, count:count()')
+    .group('board_id')
+  if (error) throw error
+  const map = new Map()
+  for (const row of data) map.set(row.board_id, Number(row.count) || 0)
+  return map
+}

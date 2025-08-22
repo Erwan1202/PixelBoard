@@ -7,11 +7,12 @@ import Dashboard from './pages/DashBoard'
 import Protected from './components/Protected'
 import { supabase } from '../supabase_connection'
 import BoardPage from './pages/BoardPage'
-
+import Signup from './pages/Signup'
 
 supabase.auth.getSession().then(r => console.log('supabase OK', r.data?.session))
 
 const router = createBrowserRouter([
+  { path: '/signup', element: <Signup/> },
   { path: '/login', element: <Login/> },
   { path: '/auth/callback', element: <AuthCallback/> },
   { path: '/', element: (
