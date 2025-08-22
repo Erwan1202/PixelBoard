@@ -7,8 +7,11 @@ export async function placePixel(boardId, x, y, colorIdx) {
     p_y: y,
     p_color_idx: colorIdx,
   })
+  
   if (error) throw error
 }
+
+
 
 export function subscribePixels(boardId, onPixel) {
   const channel = supabase
@@ -34,4 +37,25 @@ export function subscribePixels(boardId, onPixel) {
     )
     .subscribe()
   return channel
+}
+
+
+export async function loadPixelHistory(boardId, limit = 100000) {
+  const { data, error } = await supabase
+    .from('pixel_events')
+    .select('x,y,color_idx,created_at')
+    .eq('board_id', boardId)
+    .order('created_at', { ascending: true })
+    .limit(limit)
+  if (error) throw error
+  return data
+}
+
+export async function loadCurrentPixels(boardId) {
+  const { data, error } = await supabase
+    .from('current_pixels')
+    .select('x,y,color_idx')
+    .eq('board_id', boardId)
+  if (error) throw error
+  return data
 }
