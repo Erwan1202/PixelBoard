@@ -1,7 +1,7 @@
 // src/components/BoardCanvas.jsx
 import React, { useEffect, useRef, useState, useMemo } from 'react'
 import PropTypes from 'prop-types'
-import { placePixel, subscribePixels, loadPixelHistory } from '../services/pixel'
+import { placePixel, subscribePixels, loadPixelHistory, loadCurrentPixels } from '../services/pixel'
 import { supabase } from '../../supabase_connection'
 import { joinPresence, updateMyCursor } from '../services/presence'
 
@@ -59,13 +59,14 @@ export default function BoardCanvas({
 
   const applyPixel = (x, y, color_idx) => { pixelsRef.current.set(`${x},${y}`, color_idx); draw() }
 
-  useEffect(() => {
+useEffect(() => {
   let alive = true
   async function preload() {
     if (!boardId) return
     try {
-      const rows = await loadPixelHistory(boardId, 100000) 
+      const rows = await loadCurrentPixels(boardId)
       if (!alive) return
+      pixelsRef.current.clear()
       for (const e of rows) {
         pixelsRef.current.set(`${e.x},${e.y}`, e.color_idx)
       }
@@ -77,6 +78,7 @@ export default function BoardCanvas({
   preload()
   return () => { alive = false }
 }, [boardId])
+
 
 
   useEffect(() => {
