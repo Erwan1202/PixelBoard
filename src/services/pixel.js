@@ -50,3 +50,12 @@ export async function loadPixelHistory(boardId, limit = 100000) {
   if (error) throw error
   return data
 }
+
+export async function loadCurrentPixels(boardId) {
+  const { data, error } = await supabase
+    .from('current_pixels')
+    .select('x,y,color_idx')
+    .eq('board_id', boardId)
+  if (error) throw error
+  return data
+}
