@@ -41,11 +41,10 @@ export async function getAllBoards() {
 
 export async function getPixelCounts() {
   const { data, error } = await supabase
-    .from('current_pixels')
-    .select('board_id, count:count()')
-    .group('board_id')
+    .from('board_pixel_counts')
+    .select('board_id, pixel_count')
   if (error) throw error
   const map = new Map()
-  for (const row of data) map.set(row.board_id, Number(row.count) || 0)
+  for (const row of data) map.set(row.board_id, row.pixel_count)
   return map
 }

@@ -39,14 +39,25 @@ export default function DashBoard() {
   const [q, setQ] = useState('')
 
   useEffect(() => {
-    async function load() {
+  async function load() {
+    try {
       const list = await getAllBoards()
-      const counts = await getPixelCounts()
+      let counts = new Map()
+      try {
+        counts = await getPixelCounts()
+      } catch (e) {
+        console.warn('getPixelCounts failed:', e)
+      }
       const enriched = list.map(b => ({ ...b, pixelCount: counts.get(b.id) ?? 0 }))
       setBoards(enriched)
+    } catch (e) {
+      console.error(e)
+      alert(e.message)
     }
-    load()
-  }, [])
+  }
+  load()
+}, [])
+
 
   useEffect(() => {
     if (searchParams.get('welcome')) {
